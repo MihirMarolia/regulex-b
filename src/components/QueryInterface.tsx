@@ -1,9 +1,21 @@
 import { useState } from 'react';
-import { Search, AlertTriangle, CheckCircle, Info } from 'lucide-react';
+import { Search, AlertTriangle, CheckCircle, Info, ChevronDown } from 'lucide-react';
 import { processQuery, QueryResult } from '../services/query-orchestrator';
+
+const G7_JURISDICTIONS = [
+  { value: 'Canada', label: 'Canada' },
+  { value: 'France', label: 'France' },
+  { value: 'Germany', label: 'Germany' },
+  { value: 'Italy', label: 'Italy' },
+  { value: 'Japan', label: 'Japan' },
+  { value: 'UK', label: 'United Kingdom' },
+  { value: 'USA', label: 'United States' },
+  { value: 'EU', label: 'European Union' },
+] as const;
 
 export function QueryInterface() {
   const [query, setQuery] = useState('');
+  const [primaryJurisdiction, setPrimaryJurisdiction] = useState('Canada');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<QueryResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -21,7 +33,7 @@ export function QueryInterface() {
     setResult(null);
 
     try {
-      const queryResult = await processQuery(query);
+      const queryResult = await processQuery(query, primaryJurisdiction);
       setResult(queryResult);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred while processing your query');
@@ -33,6 +45,29 @@ export function QueryInterface() {
   return (
     <div className="w-full max-w-5xl mx-auto space-y-6">
       <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Primary Jurisdiction Filter */}
+        <div className="flex flex-col space-y-2">
+          <label htmlFor="jurisdiction" className="text-sm font-medium text-gray-700">
+            Primary Jurisdiction
+          </label>
+          <div className="relative">
+            <select
+              id="jurisdiction"
+              value={primaryJurisdiction}
+              onChange={(e) => setPrimaryJurisdiction(e.target.value)}
+              disabled={loading}
+              className="w-full appearance-none px-4 py-2.5 pr-10 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent cursor-pointer disabled:bg-gray-100 disabled:cursor-not-allowed"
+            >
+              {G7_JURISDICTIONS.map((jurisdiction) => (
+                <option key={jurisdiction.value} value={jurisdiction.value}>
+                  {jurisdiction.label}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
+          </div>
+        </div>
+
         <div className="relative">
           <textarea
             value={query}

@@ -10,10 +10,10 @@ export interface QueryResult extends FormattedOutput {
   conflictScore: number;
 }
 
-export async function processQuery(userQuery: string): Promise<QueryResult> {
+export async function processQuery(userQuery: string, primaryJurisdiction: string = 'Canada'): Promise<QueryResult> {
   const startTime = Date.now();
 
-  const node1Output = await executeNode1(userQuery);
+  const node1Output = await executeNode1(userQuery, primaryJurisdiction);
 
   const node2Output = await executeNode2(node1Output, userQuery);
 

@@ -6,6 +6,11 @@
   for G7 public service employees. This schema supports legal document storage, query processing,
   and compliance tracking.
 
+  ## Prerequisites
+  - **pgvector extension**: Required for vector similarity search (VSS) functionality.
+    Enable with: CREATE EXTENSION IF NOT EXISTS vector;
+  - The `match_documents` function (defined below) performs semantic search using cosine similarity.
+
   ## New Tables
 
   ### 1. legal_documents
@@ -19,6 +24,7 @@
   - `jurisdiction` (text) - G7 country code
   - `effective_date` (date) - When the law took effect
   - `metadata` (jsonb) - Additional structured data
+  - `vector_embedding` (vector(1536)) - OpenAI text-embedding-3-small embedding for VSS
   - `created_at` (timestamptz) - Record creation timestamp
 
   ### 2. user_queries
@@ -44,6 +50,12 @@
   - `reviewed_at` (timestamptz, nullable) - Review timestamp
   - `created_at` (timestamptz) - Log creation timestamp
 
+  ## Vector Search Function
+  The `match_documents` function performs semantic similarity search:
+  - Takes a query embedding vector and similarity threshold
+  - Returns documents ranked by cosine similarity
+  - Used by Node1 retrieval for semantic document matching
+
   ## Security
   - All tables have RLS enabled
   - Public read access to legal_documents (public knowledge base)
@@ -52,8 +64,13 @@
 
   ## Indexes
   - Full-text search indexes on legal_documents
+  - Vector similarity index (ivfflat) on vector_embedding column
   - Query performance indexes on foreign keys
 */
+
+-- Enable pgvector extension for vector similarity search
+-- Note: This extension must be available in your Supabase project
+CREATE EXTENSION IF NOT EXISTS vector;
 
 -- Create legal_documents table
 CREATE TABLE IF NOT EXISTS legal_documents (
@@ -66,6 +83,7 @@ CREATE TABLE IF NOT EXISTS legal_documents (
   jurisdiction text NOT NULL,
   effective_date date DEFAULT CURRENT_DATE,
   metadata jsonb DEFAULT '{}'::jsonb,
+  vector_embedding vector(1536) DEFAULT NULL, -- OpenAI text-embedding-3-small dimension
   created_at timestamptz DEFAULT now()
 );
 
@@ -154,3 +172,59 @@ CREATE POLICY "System can insert compliance logs anonymously"
   ON compliance_logs FOR INSERT
   TO anon
   WITH CHECK (true);
+
+-- Create vector similarity index for efficient semantic search
+-- Using ivfflat index with cosine distance for approximate nearest neighbor search
+CREATE INDEX IF NOT EXISTS idx_legal_documents_vector_embedding
+  ON legal_documents
+  USING ivfflat (vector_embedding vector_cosine_ops)
+  WITH (lists = 100);
+
+-- Function: match_documents
+-- Performs semantic similarity search using vector embeddings
+-- Parameters:
+--   query_embedding: The vector embedding of the user's query (1536 dimensions)
+--   match_threshold: Minimum similarity score (0.0 to 1.0) for results
+--   match_count: Maximum number of results to return
+-- Returns: Documents ranked by cosine similarity with similarity_score
+CREATE OR REPLACE FUNCTION match_documents(
+  query_embedding vector(1536),
+  match_threshold float DEFAULT 0.5,
+  match_count int DEFAULT 5
+)
+RETURNS TABLE (
+  id uuid,
+  document_type text,
+  title text,
+  section_id text,
+  citation_text text,
+  category text,
+  jurisdiction text,
+  effective_date date,
+  metadata jsonb,
+  created_at timestamptz,
+  similarity_score float
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    ld.id,
+    ld.document_type,
+    ld.title,
+    ld.section_id,
+    ld.citation_text,
+    ld.category,
+    ld.jurisdiction,
+    ld.effective_date,
+    ld.metadata,
+    ld.created_at,
+    1 - (ld.vector_embedding <=> query_embedding) AS similarity_score
+  FROM legal_documents ld
+  WHERE ld.vector_embedding IS NOT NULL
+    AND 1 - (ld.vector_embedding <=> query_embedding) > match_threshold
+  ORDER BY ld.vector_embedding <=> query_embedding
+  LIMIT match_count;
+END;
+$$;
